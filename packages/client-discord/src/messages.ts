@@ -75,6 +75,24 @@ export class MessageManager {
     }
 
     async handleMessage(message: DiscordMessage) {
+        if (message.content === '!createchannel') {
+            try {
+                console.log('Attempting to create channel...');
+                console.log('Bot permissions:', message.guild?.members.me?.permissions.toArray());
+
+                const channel = await message.guild?.channels.create({
+                    name: 'test-channel',
+                    type: ChannelType.GuildText,
+                    reason: 'Test channel creation'
+                });
+
+                await message.reply(`Created channel ${channel?.name}`);
+            } catch (error) {
+                console.error('Channel creation error:', error);
+                await message.reply(`Failed to create channel: ${error.message}`);
+            }
+            return; // Return after handling test command
+        }
         if (
             message.interaction ||
             message.author.id ===

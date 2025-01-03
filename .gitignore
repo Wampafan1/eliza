@@ -54,3 +54,5 @@ coverage
 .eslintcache
 
 agent/content
+output3.txt
+output_discord.txt

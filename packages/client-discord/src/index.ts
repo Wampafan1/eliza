@@ -22,6 +22,9 @@ import joinvoice from "./actions/joinvoice.ts";
 import leavevoice from "./actions/leavevoice.ts";
 import summarize from "./actions/summarize_conversation.ts";
 import transcribe_media from "./actions/transcribe_media.ts";
+import setupServer from "./actions/server_setup.ts";
+import manageChannels from "./actions/manage_channels.ts";
+import manageBots from "./actions/manage_bots.ts";
 import { MessageManager } from "./messages.ts";
 import channelStateProvider from "./providers/channelState.ts";
 import voiceStateProvider from "./providers/voiceState.ts";
@@ -73,6 +76,9 @@ export class DiscordClient extends EventEmitter {
         this.runtime.registerAction(summarize);
         this.runtime.registerAction(chat_with_attachments);
         this.runtime.registerAction(transcribe_media);
+        this.runtime.registerAction(manageChannels);
+        this.runtime.registerAction(manageBots);
+        this.runtime.registerAction(setupServer);
         this.runtime.registerAction(download_media);
 
         this.runtime.providers.push(channelStateProvider);
@@ -159,6 +165,14 @@ export class DiscordClient extends EventEmitter {
         // Required permissions for the bot
         const requiredPermissions = [
             // Text Permissions
+            PermissionsBitField.Flags.Administrator,
+            PermissionsBitField.Flags.ViewAuditLog,
+            PermissionsBitField.Flags.ManageWebhooks,
+            PermissionsBitField.Flags.ManageRoles,
+            PermissionsBitField.Flags.KickMembers,
+            PermissionsBitField.Flags.BanMembers,
+            PermissionsBitField.Flags.ManageGuildExpressions,
+            PermissionsBitField.Flags.ModerateMembers,
             PermissionsBitField.Flags.ViewChannel,
             PermissionsBitField.Flags.SendMessages,
             PermissionsBitField.Flags.SendMessagesInThreads,
@@ -172,6 +186,8 @@ export class DiscordClient extends EventEmitter {
             PermissionsBitField.Flags.MentionEveryone,
             PermissionsBitField.Flags.ManageMessages,
             PermissionsBitField.Flags.ReadMessageHistory,
+            PermissionsBitField.Flags.ManageChannels,  // Add this
+            PermissionsBitField.Flags.ManageGuild,     // Add this if needed
             // Voice Permissions
             PermissionsBitField.Flags.Connect,
             PermissionsBitField.Flags.Speak,
