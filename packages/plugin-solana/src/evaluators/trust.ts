@@ -147,8 +147,34 @@ async function handler(runtime: IAgentRuntime, message: Memory) {
 
     const { publicKey } = await getWalletKey(runtime, false);
 
+    async function findContractAddress(runtime: IAgentRuntime, ticker: string, walletProvider: WalletProvider): Promise<string | null> {
+        // Try to get address from wallet first
+        const tempTokenProvider = new TokenProvider(
+            null,
+            walletProvider,
+            runtime.cacheManager
+        );
+
+        let contractAddress = await tempTokenProvider.getTokenFromWallet(
+            runtime,
+            ticker
+        );
+
+        if (!contractAddress) {
+            // If not in wallet, try DexScreener
+            const result = await tempTokenProvider.searchDexScreenerData(
+                ticker
+            );
+            contractAddress = result?.baseToken?.address;
+        }
+
+        return contractAddress;
+    }
+
     for (const rec of filteredRecommendations) {
-        // create the wallet provider and token provider
+        // Get the contract address first before doing anything else
+        let contractAddress = rec.contractAddress;
+
         const walletProvider = new WalletProvider(
             new Connection(
                 runtime.getSetting("RPC_URL") ||
@@ -156,15 +182,31 @@ async function handler(runtime: IAgentRuntime, message: Memory) {
             ),
             publicKey
         );
+
+        if (!contractAddress) {
+            contractAddress = await findContractAddress(runtime, rec.ticker, walletProvider);
+
+            if (!contractAddress) {
+                console.warn(`Could not find contract address for ${rec.ticker}, skipping`);
+                continue;
+            }
+
+            // Update the recommendation with the found address
+            rec.contractAddress = contractAddress;
+        }
+
+        // Now create the real token provider with the guaranteed address
         const tokenProvider = new TokenProvider(
-            rec.contractAddress,
+            contractAddress, // Now we know this isn't null
             walletProvider,
             runtime.cacheManager
         );
+        console.log("Created TokenProvider with address:", tokenProvider.getTokenAddress());
 
         // TODO: Check to make sure the contract address is valid, it's the right one, etc
 
         //
+
         if (!rec.contractAddress) {
             const tokenAddress = await tokenProvider.getTokenFromWallet(
                 runtime,
@@ -243,6 +285,9 @@ async function handler(runtime: IAgentRuntime, message: Memory) {
         }
 
         // TODO: is this is a buy, sell, dont buy, or dont sell?
+        // Before calling shouldTradeToken, let's verify we still have the address
+        console.log("TokenProvider address before trade check:", tokenProvider.getTokenAddress());
+
         const shouldTrade = await tokenProvider.shouldTradeToken();
 
         if (!shouldTrade) {
@@ -254,13 +299,18 @@ async function handler(runtime: IAgentRuntime, message: Memory) {
 
         switch (rec.type) {
             case "buy":
-                // for now, lets just assume buy only, but we should implement
+                // Skip if we still don't have a contract address
+                if (!rec.contractAddress) {
+                    console.warn("No valid contract address found, skipping trade");
+                    continue;
+                }
+
                 await trustScoreManager.createTradePerformance(
                     runtime,
                     rec.contractAddress,
                     userId,
                     {
-                        buy_amount: rec.buyAmount,
+                        buy_amount: buyAmount, // Use the calculated buyAmount based on conviction
                         is_simulation: true,
                     }
                 );

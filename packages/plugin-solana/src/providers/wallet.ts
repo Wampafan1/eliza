@@ -53,12 +53,94 @@ interface Prices {
 
 export class WalletProvider {
     private cache: NodeCache;
+    private isCacheInitialized: boolean = false;
 
     constructor(
         private connection: Connection,
         private walletPublicKey: PublicKey
     ) {
-        this.cache = new NodeCache({ stdTTL: 300 }); // Cache TTL set to 5 minutes
+        try {
+            this.cache = new NodeCache({ 
+                stdTTL: 300,
+                errorOnMissing: false,
+                useClones: false
+            });
+            
+            // Set up error handler for cache
+            this.cache.on('error', (err) => {
+                console.error('Cache error:', err);
+                this.isCacheInitialized = false;
+            });
+
+            // Test cache functionality
+            const testKey = '_test_init_';
+            this.cache.set(testKey, 'test');
+            this.cache.del(testKey);
+            
+            this.isCacheInitialized = true;
+            console.log('Cache initialized successfully');
+        } catch (error) {
+            this.isCacheInitialized = false;
+            console.error('Failed to initialize cache:', error);
+            // Create a new cache instance but mark it as not initialized
+            this.cache = new NodeCache({ 
+                stdTTL: 300,
+                errorOnMissing: false,
+                useClones: false
+            });
+            // Disable actual caching operations in error state
+            this.cache.get = () => undefined;
+            this.cache.set = () => false;
+            this.cache.del = () => 0;
+        }
+    }
+
+    private validateCache(): boolean {
+        if (!this.isCacheInitialized) {
+            console.warn('Cache is not properly initialized');
+            return false;
+        }
+        
+        try {
+            // Test if cache is actually working
+            const testKey = '_test_validate_';
+            const testValue = 'test';
+            this.cache.set(testKey, testValue);
+            const retrieved = this.cache.get(testKey);
+            this.cache.del(testKey);
+            
+            if (retrieved !== testValue) {
+                console.warn('Cache validation failed - cache operations not working');
+                this.isCacheInitialized = false;
+                return false;
+            }
+            
+            return true;
+        } catch (error) {
+            console.warn('Cache validation failed:', error);
+            this.isCacheInitialized = false;
+            return false;
+        }
+    }
+
+    private getCacheValue<T>(key: string): T | undefined {
+        if (!this.validateCache()) return undefined;
+        try {
+            return this.cache.get<T>(key);
+        } catch (error) {
+            console.error(`Error getting cache value for key ${key}:`, error);
+            return undefined;
+        }
+    }
+
+    private setCacheValue<T>(key: string, value: T, ttl?: number): boolean {
+        if (!this.validateCache()) return false;
+        try {
+            return this.cache.set(key, value, ttl);
+        } catch (error) {
+            console.error(`Error setting cache value for key ${key}:`, error);
+            return false;
+        }
     }
 
     private async fetchWithRetry(
@@ -111,13 +193,25 @@ export class WalletProvider {
     async fetchPortfolioValue(runtime): Promise<WalletPortfolio> {
         try {
             const cacheKey = `portfolio-${this.walletPublicKey.toBase58()}`;
-            const cachedValue = this.cache.get<WalletPortfolio>(cacheKey);
+            const cachedValue = this.getCacheValue<WalletPortfolio>(cacheKey);
+
+            // Log detailed caching information
+            console.log("Caching Debug:", {
+                cacheKey,
+                cacheInitialized: this.isCacheInitialized,
+                cacheInstance: this.cache ? "Cache exists" : "Cache is null",
+                cachedValue: cachedValue ? "Found" : "Not found"
+            });
 
             if (cachedValue) {
-                console.log("Cache hit for fetchPortfolioValue");
+                console.log("Cache hit for fetchPortfolioValue", {
+                    totalUsd: cachedValue.totalUsd,
+                    itemCount: cachedValue.items.length
+                });
                 return cachedValue;
             }
-            console.log("Cache miss for fetchPortfolioValue");
+
+            console.log("Cache miss for fetchPortfolioValue - fetching new data");
 
             const walletData = await this.fetchWithRetry(
                 runtime,
@@ -155,10 +249,22 @@ export class WalletProvider {
                         .toNumber()
                 ),
             };
-            this.cache.set(cacheKey, portfolio);
+
+            // Explicit null check before caching
+            this.setCacheValue(cacheKey, portfolio, 300); // 5 minutes cache
+
             return portfolio;
         } catch (error) {
             console.error("Error fetching portfolio:", error);
+
+            // If there's an error, we want to ensure it's logged completely
+            if (error instanceof Error) {
+                console.error("Error details:", {
+                    message: error.message,
+                    stack: error.stack
+                });
+            }
+
             throw error;
         }
     }
@@ -166,7 +272,15 @@ export class WalletProvider {
     async fetchPortfolioValueCodex(runtime): Promise<WalletPortfolio> {
         try {
             const cacheKey = `portfolio-${this.walletPublicKey.toBase58()}`;
-            const cachedValue = await this.cache.get<WalletPortfolio>(cacheKey);
+            const cachedValue = this.getCacheValue<WalletPortfolio>(cacheKey);
+
+            // Log detailed caching information
+            console.log("Caching Debug:", {
+                cacheKey,
+                cacheInitialized: this.isCacheInitialized,
+                cacheInstance: this.cache ? "Cache exists" : "Cache is null",
+                cachedValue: cachedValue ? "Found" : "Not found"
+            });
 
             if (cachedValue) {
                 console.log("Cache hit for fetchPortfolioValue");
@@ -251,7 +365,7 @@ export class WalletProvider {
             };
 
             // Cache the portfolio for future requests
-            await this.cache.set(cacheKey, portfolio, 60 * 1000); // Cache for 1 minute
+            this.setCacheValue(cacheKey, portfolio, 60 * 1000); // Cache for 1 minute
 
             return portfolio;
         } catch (error) {
@@ -263,7 +377,15 @@ export class WalletProvider {
     async fetchPrices(runtime): Promise<Prices> {
         try {
             const cacheKey = "prices";
-            const cachedValue = this.cache.get<Prices>(cacheKey);
+            const cachedValue = this.getCacheValue<Prices>(cacheKey);
+
+            // Log detailed caching information
+            console.log("Caching Debug:", {
+                cacheKey,
+                cacheInitialized: this.isCacheInitialized,
+                cacheInstance: this.cache ? "Cache exists" : "Cache is null",
+                cachedValue: cachedValue ? "Found" : "Not found"
+            });
 
             if (cachedValue) {
                 console.log("Cache hit for fetchPrices");
@@ -296,15 +418,15 @@ export class WalletProvider {
                         token === SOL
                             ? "solana"
                             : token === BTC
-                              ? "bitcoin"
-                              : "ethereum"
+                                ? "bitcoin"
+                                : "ethereum"
                     ].usd = price;
                 } else {
                     console.warn(`No price data available for token: ${token}`);
                 }
             }
 
-            this.cache.set(cacheKey, prices);
+            this.setCacheValue(cacheKey, prices, 300); // Set TTL to 5 minutes explicitly
             return prices;
         } catch (error) {
             console.error("Error fetching prices:", error);
