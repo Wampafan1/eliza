@@ -38,7 +38,7 @@ export class SimulationSellingService {
 
     constructor(runtime: IAgentRuntime, trustScoreDb: TrustScoreDatabase) {
         this.trustScoreDb = trustScoreDb;
-
+        this.runtime = runtime;
         this.connection = new Connection(runtime.getSetting("RPC_URL"));
         this.initializeWalletProvider();
         this.baseMint = new PublicKey(
@@ -175,7 +175,7 @@ export class SimulationSellingService {
      * If TEE mode is enabled, derives a keypair using the DeriveKeyProvider with the wallet secret salt and agent ID.
      * If TEE mode is disabled, uses the provided Solana public key or wallet public key from settings.
      */
-    private async initializeWalletProvider(): Promise<void> {
+    private async initializeWalletProvider(runtime: IAgentRuntime): Promise<void> {
         const { publicKey } = await getWalletKey(this.runtime, false);
 
         this.walletProvider = new WalletProvider(this.connection, publicKey);

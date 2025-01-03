@@ -1,5 +1,6 @@
 import { ICacheManager, settings } from "@elizaos/core";
 import { IAgentRuntime, Memory, Provider, State } from "@elizaos/core";
+import { normalizeAddress } from "../keypairUtils";
 import {
     DexScreenerData,
     DexScreenerPair,
@@ -47,46 +48,68 @@ export class TokenProvider {
         private walletProvider: WalletProvider,
         private cacheManager: ICacheManager
     ) {
-        this.cache = new NodeCache({ stdTTL: 300 }); // 5 minutes cache
+        this.cache = new NodeCache({ stdTTL: 600 }); // 10 minutes cache
     }
 
     private async readFromCache<T>(key: string): Promise<T | null> {
-        const cached = await this.cacheManager.get<T>(
-            path.join(this.cacheKey, key)
-        );
-        return cached;
+        try {
+            const cached = await this.cacheManager.get<T>(
+                path.join(this.cacheKey, key)
+            );
+            return cached;
+        } catch (error) {
+            console.error("Error reading from cache:", error);
+            return null;
+        }
     }
 
     private async writeToCache<T>(key: string, data: T): Promise<void> {
-        await this.cacheManager.set(path.join(this.cacheKey, key), data, {
-            expires: Date.now() + 5 * 60 * 1000,
-        });
+        try {
+            await this.cacheManager.set(path.join(this.cacheKey, key), data, {
+                expires: Date.now() + 10 * 60 * 1000,
+            });
+        } catch (error) {
+            console.error("Error writing to cache:", error);
+        }
     }
 
     private async getCachedData<T>(key: string): Promise<T | null> {
-        // Check in-memory cache first
-        const cachedData = this.cache.get<T>(key);
-        if (cachedData) {
-            return cachedData;
-        }
+        try {
+            // Check in-memory cache first
+            const cachedData = this.cache.get<T>(key);
+            if (cachedData) {
+                return cachedData;
+            }
 
-        // Check file-based cache
-        const fileCachedData = await this.readFromCache<T>(key);
-        if (fileCachedData) {
-            // Populate in-memory cache
-            this.cache.set(key, fileCachedData);
-            return fileCachedData;
-        }
+            // Check file-based cache
+            const fileCachedData = await this.readFromCache<T>(key);
+            if (fileCachedData) {
+                // Populate in-memory cache
+                this.cache.set(key, fileCachedData);
+                return fileCachedData;
+            }
 
-        return null;
+            return null;
+        } catch (error) {
+            console.error("Error getting cached data for key:", key, error);
+            return null;
+        }
     }
 
     private async setCachedData<T>(cacheKey: string, data: T): Promise<void> {
-        // Set in-memory cache
-        this.cache.set(cacheKey, data);
+        try {
+            // Set in-memory cache
+            this.cache.set(cacheKey, data);
 
-        // Write to file-based cache
-        await this.writeToCache(cacheKey, data);
+            // Write to file-based cache
+            await this.writeToCache(cacheKey, data);
+        } catch (error) {
+            console.error(
+                "Error setting cached data for key:",
+                cacheKey,
+                error
+            );
+        }
     }
 
     private async fetchWithRetry(
@@ -145,17 +168,17 @@ export class TokenProvider {
     // check if the token symbol is in the wallet
     async getTokenFromWallet(runtime: IAgentRuntime, tokenSymbol: string) {
         try {
-            const items = await this.getTokensInWallet(runtime);
-            const token = items.find((item) => item.symbol === tokenSymbol);
+          const items = await this.getTokensInWallet(runtime);
+          const token = items.find((item) => item.symbol.toUpperCase() === tokenSymbol.toUpperCase());
 
-            if (token) {
-                return token.address;
-            } else {
-                return null;
-            }
-        } catch (error) {
-            console.error("Error checking token in wallet:", error);
+          if (token) {
+            return normalizeAddress(token.address);
+          } else {
             return null;
+          }
+        } catch (error) {
+          console.error("Error checking token in wallet:", error);
+          return null;
         }
     }
 
@@ -243,11 +266,12 @@ export class TokenProvider {
     async fetchPrices(): Promise<Prices> {
         try {
             const cacheKey = "prices";
-            const cachedData = this.getCachedData<Prices>(cacheKey);
+            const cachedData = await this.getCachedData<Prices>(cacheKey);
             if (cachedData) {
-                console.log("Returning cached prices.");
+                console.log("Returning cached prices:", cachedData);
                 return cachedData;
             }
+            console.log("Cache miss, fetching fresh prices");
             const { SOL, BTC, ETH } = PROVIDER_CONFIG.TOKEN_ADDRESSES;
             const tokens = [SOL, BTC, ETH];
             const prices: Prices = {
@@ -257,33 +281,61 @@ export class TokenProvider {
             };
 
             for (const token of tokens) {
-                const response = await this.fetchWithRetry(
-                    `${PROVIDER_CONFIG.BIRDEYE_API}/defi/price?address=${token}`,
-                    {
-                        headers: {
-                            "x-chain": "solana",
-                        },
-                    }
-                );
+                try {
+                    console.log(`Fetching price for token: ${token}`);
+                    const response = await this.fetchWithRetry(
+                        `${PROVIDER_CONFIG.BIRDEYE_API}/defi/price?address=${token}`,
+                        {
+                            headers: {
+                                "x-chain": "solana",
+                            },
+                        }
+                    );
 
-                if (response?.data?.value) {
-                    const price = response.data.value.toString();
-                    prices[
-                        token === SOL
-                            ? "solana"
-                            : token === BTC
-                              ? "bitcoin"
-                              : "ethereum"
-                    ].usd = price;
-                } else {
-                    console.warn(`No price data available for token: ${token}`);
+                    if (response?.data?.value) {
+                        const price = response.data.value.toString();
+                        console.log(`Got price for ${token}:`, price);
+                        prices[
+                            token === SOL
+                                ? "solana"
+                                : token === BTC
+                                  ? "bitcoin"
+                                  : "ethereum"
+                        ].usd = price;
+                    } else {
+                        console.warn(
+                            `No price data available for token: ${token}`,
+                            response
+                        );
+                    }
+                } catch (fetchError) {
+                    console.error(
+                        `Error fetching price for token ${token}:`,
+                        fetchError
+                    );
+                    // Continue with next token instead of failing completely
+                    continue;
                 }
             }
-            this.setCachedData(cacheKey, prices);
+
+            // Only cache if we got at least one valid price
+            if (Object.values(prices).some((p) => p.usd !== "0")) {
+                console.log("Setting cache with prices:", prices);
+                await this.setCachedData(cacheKey, prices);
+            } else {
+                console.warn(
+                    "No valid prices fetched, not caching empty results"
+                );
+            }
             return prices;
         } catch (error) {
-            console.error("Error fetching prices:", error);
-            throw error;
+            console.error("Error in fetchPrices:", error);
+            // Return default prices instead of throwing
+            return {
+                solana: { usd: "0" },
+                bitcoin: { usd: "0" },
+                ethereum: { usd: "0" },
+            };
         }
     }
     async calculateBuyAmounts(): Promise<CalculatedBuyAmounts> {
@@ -705,24 +757,22 @@ export class TokenProvider {
         const intervals = [
             {
                 period: "30m",
-                change: tradeData.unique_wallet_30m_change_percent,
+                change: tradeData?.unique_wallet_30m_change_percent ?? 0,
             },
-            { period: "1h", change: tradeData.unique_wallet_1h_change_percent },
-            { period: "2h", change: tradeData.unique_wallet_2h_change_percent },
-            { period: "4h", change: tradeData.unique_wallet_4h_change_percent },
-            { period: "8h", change: tradeData.unique_wallet_8h_change_percent },
+            { period: "1h", change: tradeData?.unique_wallet_1h_change_percent ?? 0 },
+            { period: "2h", change: tradeData?.unique_wallet_2h_change_percent ?? 0 },
+            { period: "4h", change: tradeData?.unique_wallet_4h_change_percent ?? 0 },
+            { period: "8h", change: tradeData?.unique_wallet_8h_change_percent ?? 0 },
             {
                 period: "24h",
-                change: tradeData.unique_wallet_24h_change_percent,
+                change: tradeData?.unique_wallet_24h_change_percent ?? 0,
             },
         ];
 
         // Calculate the average change percentage
         const validChanges = intervals
             .map((interval) => interval.change)
-            .filter(
-                (change) => change !== null && change !== undefined
-            ) as number[];
+            .filter((change) => change !== null && change !== undefined && !isNaN(change));
 
         if (validChanges.length === 0) {
             return "stable";
@@ -845,25 +895,39 @@ export class TokenProvider {
     async filterHighValueHolders(
         tradeData: TokenTradeData
     ): Promise<Array<{ holderAddress: string; balanceUsd: string }>> {
-        const holdersData = await this.fetchHolderList();
+        try {
+            const holdersData = await this.fetchHolderList();
 
-        const tokenPriceUsd = toBN(tradeData.price);
+            // Add null checks
+            if (!tradeData || typeof tradeData.price === 'undefined' || tradeData.price === null) {
+                console.warn('Trade data or price is missing, returning empty holders list');
+                return [];
+            }
 
-        const highValueHolders = holdersData
-            .filter((holder) => {
-                const balanceUsd = toBN(holder.balance).multipliedBy(
-                    tokenPriceUsd
-                );
-                return balanceUsd.isGreaterThan(5);
-            })
-            .map((holder) => ({
-                holderAddress: holder.address,
-                balanceUsd: toBN(holder.balance)
-                    .multipliedBy(tokenPriceUsd)
-                    .toFixed(2),
-            }));
+            const tokenPriceUsd = toBN(tradeData.price);
 
-        return highValueHolders;
+            const highValueHolders = holdersData
+                .filter((holder) => {
+                    try {
+                        const balanceUsd = toBN(holder.balance).multipliedBy(tokenPriceUsd);
+                        return balanceUsd.isGreaterThan(5);
+                    } catch (error) {
+                        console.warn(`Error calculating balance for holder ${holder.address}:`, error);
+                        return false;
+                    }
+                })
+                .map((holder) => ({
+                    holderAddress: holder.address,
+                    balanceUsd: toBN(holder.balance)
+                        .multipliedBy(tokenPriceUsd)
+                        .toFixed(2),
+                }));
+
+            return highValueHolders;
+        } catch (error) {
+            console.error('Error filtering high value holders:', error);
+            return [];
+        }
     }
 
     async checkRecentTrades(tradeData: TokenTradeData): Promise<boolean> {
@@ -893,53 +957,28 @@ export class TokenProvider {
 
     async getProcessedTokenData(): Promise<ProcessedTokenData> {
         try {
-            console.log(
-                `Fetching security data for token: ${this.tokenAddress}`
-            );
+            console.log(`Fetching processed token data for token: ${this.tokenAddress}`);
             const security = await this.fetchTokenSecurity();
-
             const tokenCodex = await this.fetchTokenCodex();
-
-            console.log(`Fetching trade data for token: ${this.tokenAddress}`);
             const tradeData = await this.fetchTokenTradeData();
-
-            console.log(
-                `Fetching DexScreener data for token: ${this.tokenAddress}`
-            );
             const dexData = await this.fetchDexScreenerData();
 
-            console.log(
-                `Analyzing holder distribution for token: ${this.tokenAddress}`
-            );
-            const holderDistributionTrend =
-                await this.analyzeHolderDistribution(tradeData);
+            // Add null checks for required data
+            if (!tradeData) {
+                throw new Error('Trade data is missing');
+            }
 
-            console.log(
-                `Filtering high-value holders for token: ${this.tokenAddress}`
-            );
-            const highValueHolders =
-                await this.filterHighValueHolders(tradeData);
-
-            console.log(
-                `Checking recent trades for token: ${this.tokenAddress}`
-            );
+            const holderDistributionTrend = await this.analyzeHolderDistribution(tradeData);
+            const highValueHolders = await this.filterHighValueHolders(tradeData);
             const recentTrades = await this.checkRecentTrades(tradeData);
+            const highSupplyHoldersCount = await this.countHighSupplyHolders(security);
 
-            console.log(
-                `Counting high-supply holders for token: ${this.tokenAddress}`
-            );
-            const highSupplyHoldersCount =
-                await this.countHighSupplyHolders(security);
-
-            console.log(
-                `Determining DexScreener listing status for token: ${this.tokenAddress}`
-            );
             const isDexScreenerListed = dexData.pairs.length > 0;
             const isDexScreenerPaid = dexData.pairs.some(
                 (pair) => pair.boosts && pair.boosts.active > 0
             );
 
-            const processedData: ProcessedTokenData = {
+            return {
                 security,
                 tradeData,
                 holderDistributionTrend,
@@ -951,11 +990,8 @@ export class TokenProvider {
                 isDexScreenerPaid,
                 tokenCodex,
             };
-
-            // console.log("Processed token data:", processedData);
-            return processedData;
         } catch (error) {
-            console.error("Error processing token data:", error);
+            console.error('Error processing token data:', error);
             throw error;
         }
     }

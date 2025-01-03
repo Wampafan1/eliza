@@ -15,6 +15,7 @@ import BigNumber from "bignumber.js";
 import { getWalletKey } from "../keypairUtils.ts";
 import { walletProvider, WalletProvider } from "../providers/wallet.ts";
 import { getTokenDecimals } from "./swapUtils.ts";
+import { normalizeAddress } from "../keypairUtils";
 
 async function swapToken(
     connection: Connection,
@@ -24,12 +25,16 @@ async function swapToken(
     amount: number
 ): Promise<any> {
     try {
+        // Normalize addresses before using them
+        const normalizedInputCA = normalizeAddress(inputTokenCA);
+        const normalizedOutputCA = normalizeAddress(outputTokenCA);
+
         // Get the decimals for the input token
         const decimals =
-            inputTokenCA === settings.SOL_ADDRESS
+            normalizedInputCA === settings.SOL_ADDRESS
                 ? new BigNumber(9)
                 : new BigNumber(
-                      await getTokenDecimals(connection, inputTokenCA)
+                      await getTokenDecimals(connection, normalizedInputCA)
                   );
 
         console.log("Decimals:", decimals.toString());

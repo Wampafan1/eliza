@@ -80,3 +80,17 @@ export async function getWalletKey(
         return { publicKey: new PublicKey(publicKeyString) };
     }
 }
+
+/**
+ * Normalizes a Solana address to its proper base58 format
+ * @param address The address to normalize
+ * @returns The normalized address string
+ * @throws Error if the address is invalid
+ */
+export function normalizeAddress(address: string): string {
+    try {
+      return new PublicKey(address).toString();
+    } catch (e) {
+      throw new Error(`Invalid token address: ${address}`);
+    }
+  }
