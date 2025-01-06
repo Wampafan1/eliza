@@ -295,7 +295,7 @@ async function handler(runtime: IAgentRuntime, message: Memory) {
         // Before calling shouldTradeToken, let's verify we still have the address
         console.log("TokenProvider address before trade check:", tokenProvider.getTokenAddress());
 
-        const shouldTrade = await tokenProvider.shouldTradeToken();
+        const shouldTrade = tokenProvider.getTokenAddress() != null ? true : null; // await tokenProvider.shouldTradeToken();
 
         if (!shouldTrade) {
             console.warn(

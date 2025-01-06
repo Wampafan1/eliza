@@ -48,6 +48,36 @@ export function isCreateAndBuyContent(
     );
 }
 
+const debugTokenMetadata = async (tokenMetadata: CreateTokenMetadata) => {
+    console.log("DEBUG - Token Metadata:", {
+        name: tokenMetadata.name,
+        symbol: tokenMetadata.symbol,
+        description: tokenMetadata.description
+    });
+
+    if (tokenMetadata.file) {
+        console.log("DEBUG - File Info:", {
+            type: tokenMetadata.file.type,
+            size: tokenMetadata.file.size
+        });
+
+        // Try to read a bit of the file to verify it's valid
+        try {
+            const reader = new FileReader();
+            reader.onload = () => {
+                console.log("DEBUG - First 100 chars of file:",
+                    reader.result?.toString().substring(0, 100));
+            };
+            reader.readAsDataURL(tokenMetadata.file);
+        } catch (e) {
+            console.log("DEBUG - Error reading file:", e);
+        }
+    } else {
+        console.log("DEBUG - No file present in metadata");
+    }
+};
+
+
 export const createAndBuyToken = async ({
     deployer,
     mint,
@@ -349,27 +379,26 @@ export default {
             runtime
         );
 
-        tokenMetadata.image_description = imageResult.data[0].replace(
-            /^data:image\/[a-z]+;base64,/,
-            ""
-        );
+        if (!imageResult.data || !imageResult.data[0]) {
+            throw new Error('Failed to generate image data');
+        }
 
-        // Convert base64 string to Blob
-        const base64Data = tokenMetadata.image_description;
+        // Ensure we have the complete data URL
+        const base64Data = imageResult.data[0].includes('data:image/png;base64,')
+            ? imageResult.data[0]
+            : `data:image/png;base64,${imageResult.data[0]}`;
+
+        // Create blob directly from the base64 data
+        const response = await fetch(base64Data);
+        const blob = await response.blob();
+
+        // Optional: Still save the file if needed
         const outputPath = path.join(
             process.cwd(),
             `generated_image_${Date.now()}.txt`
         );
-        fs.writeFileSync(outputPath, base64Data);
+        fs.writeFileSync(outputPath, imageResult.data[0]);
         console.log(`Base64 data saved to: ${outputPath}`);
-
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: "image/png" });
 
         // Add the default decimals and convert file to Blob
         const fullTokenMetadata: CreateTokenMetadata = {

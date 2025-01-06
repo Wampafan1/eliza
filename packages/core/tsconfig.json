@@ -23,6 +23,7 @@
         "noEmitOnError": false,
         "moduleDetection": "force",
         "allowArbitraryExtensions": true,
+        "composite": true,
         "customConditions": [
             "@elizaos/source"
         ],

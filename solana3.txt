@@ -1,3 +1,15 @@
+Project Path: post.ts
+
+Source Tree:
+
+```
+post.ts
+
+```
+
+`/root/eliza/packages/client-twitter/src/post.ts`:
+
+```ts
 import { Tweet } from "agent-twitter-client";
 import {
     composeContext,
@@ -161,36 +173,19 @@ export class TwitterPostClient {
             const minMinutes = this.client.twitterConfig.POST_INTERVAL_MIN;
             const maxMinutes = this.client.twitterConfig.POST_INTERVAL_MAX;
             const randomMinutes =
-                Math.floor(Math.random() * (maxMinutes - minMinutes + 1)) + minMinutes;
+                Math.floor(Math.random() * (maxMinutes - minMinutes + 1)) +
+                minMinutes;
             const delay = randomMinutes * 60 * 1000;
 
-            // Calculate time since last post
-            let timeSinceLastPost = Date.now() - lastPostTimestamp;
-
-            // Safety check for future timestamps
-            if (timeSinceLastPost < 0) {
-                elizaLogger.error("Last post timestamp is in the future, resetting to current time");
-                await this.runtime.cacheManager.set(`twitter/${this.twitterUsername}/lastPost`, {
-                    timestamp: Date.now()
-                });
-                timeSinceLastPost = 0;
-            }
-
-            if (timeSinceLastPost >= delay) {
+            if (Date.now() > lastPostTimestamp + delay) {
                 await this.generateNewTweet();
-                // Schedule next tweet using FULL interval from now
-                setTimeout(() => {
-                    generateNewTweetLoop();
-                }, delay);
-                elizaLogger.log(`Next tweet scheduled in ${randomMinutes} minutes`);
-            } else {
-                // Calculate remaining time until next allowed post
-                const remainingTime = delay - timeSinceLastPost;
-                setTimeout(() => {
-                    generateNewTweetLoop();
-                }, remainingTime);
-                elizaLogger.log(`Next tweet scheduled in ${Math.ceil(remainingTime / (60 * 1000))} minutes`);
             }
+
+            setTimeout(() => {
+                generateNewTweetLoop(); // Set up next iteration
+            }, delay);
+
+            elizaLogger.log(`Next tweet scheduled in ${randomMinutes} minutes`);
         };
 
         const processActionsLoop = async () => {
@@ -737,7 +732,7 @@ export class TwitterPostClient {
                                 error
                             );
                         }
-                    }
+                    }*/
 
                     if (actionResponse.quote) {
                         try {
@@ -881,7 +876,7 @@ export class TwitterPostClient {
                                 error
                             );
                         }
-                    }*/
+                    }
 
                     if (actionResponse.reply) {
                         try {
@@ -1082,3 +1077,5 @@ export class TwitterPostClient {
         this.stopProcessingActions = true;
     }
 }
+
+```
